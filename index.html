@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>T-Rex With A Gun</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #f7f7f7;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: 'Press Start 2P', cursive;
+        }
+        canvas {
+            background-color: #f7f7f7;
+            display: block;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+            border-bottom: 2px solid #d3d3d3;
+        }
+        #ui-container {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            color: #535353;
+            text-align: center;
+        }
+        #score {
+            font-size: 24px;
+            text-align: right;
+            padding-right: 20px;
+        }
+        #gameOverScreen {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: none;
+            text-align: center;
+            color: #535353;
+        }
+        #gameOverScreen h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+        #gameOverScreen p {
+            font-size: 16px;
+            margin-bottom: 20px;
+        }
+        #restartButton {
+            font-family: 'Press Start 2P', cursive;
+            background-color: #535353;
+            color: #f7f7f7;
+            border: none;
+            padding: 15px 30px;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: background-color 0.3s;
+        }
+        #restartButton:hover {
+            background-color: #333;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui-container">
+        <div id="score">SCORE: 0</div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="gameOverScreen">
+        <h1>GAME OVER</h1>
+        <p>Your T-Rex fought bravely!</p>
+        <button id="restartButton">RESTART</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const restartButton = document.getElementById('restartButton');
+
+        let canvasWidth, canvasHeight;
+        
+        let score = 0;
+        let gameSpeed = 5;
+        let isGameOver = false;
+        let animationFrameId;
+
+        // Game settings
+        const GRAVITY = 0.6;
+        const JUMP_FORCE = -15;
+        const GROUND_HEIGHT = 50;
+        const T_REX_WIDTH = 85; // Adjusted width for new drawing
+        const T_REX_HEIGHT = 60;
+        
+        // T-Rex (Player)
+        const player = {
+            x: 50,
+            y: 0, // Will be set in init
+            width: T_REX_WIDTH,
+            height: T_REX_HEIGHT,
+            velocityY: 0,
+            isJumping: false,
+            runFrame: 0, // For animation
+            frameTimer: 0,
+
+            draw() {
+                ctx.save();
+                // Translate context to player's position for easier drawing
+                ctx.translate(this.x, this.y);
+
+                // Body and Head
+                ctx.fillStyle = '#3E8E41'; // A nice dino green
+                ctx.beginPath();
+                ctx.moveTo(10, 20);
+                ctx.lineTo(50, 20); // Bottom of body
+                ctx.lineTo(55, 0);  // Back of head
+                ctx.lineTo(70, 5);  // Top of snout
+                ctx.lineTo(70, 15); // Front of snout
+                ctx.lineTo(60, 20); // Bottom of jaw
+                ctx.lineTo(50, 25); // Neck
+                ctx.lineTo(20, 50); // Top of tail
+                ctx.lineTo(0, 55);  // Tip of tail
+                ctx.lineTo(10, 45); // Bottom of tail
+                ctx.closePath();
+                ctx.fill();
+
+                // Eye
+                ctx.fillStyle = 'white';
+                ctx.fillRect(62, 8, 4, 4);
+                ctx.fillStyle = 'black';
+                ctx.fillRect(64, 10, 2, 2);
+
+                // Legs - Animate for running effect
+                ctx.fillStyle = '#3E8E41';
+                if (this.isJumping) {
+                    // Static legs while jumping
+                    ctx.fillRect(35, 45, 10, 15); 
+                    ctx.fillRect(20, 45, 10, 15);
+                } else {
+                    // Animate legs when on the ground
+                    if (this.runFrame === 0) {
+                        ctx.fillRect(35, 45, 10, 15); // Leg 1 back
+                        ctx.fillRect(20, 40, 10, 15); // Leg 2 front
+                    } else {
+                        ctx.fillRect(35, 40, 10, 15); // Leg 1 front
+                        ctx.fillRect(20, 45, 10, 15); // Leg 2 back
+                    }
+                }
+                
+                // Gun
+                ctx.fillStyle = '#333';
+                ctx.fillRect(55, 20, 25, 10); // Gun body on its back
+                ctx.fillRect(80, 23, 5, 4);   // Gun barrel
+
+                ctx.restore();
+            },
+
+            jump() {
+                if (!this.isJumping) {
+                    this.velocityY = JUMP_FORCE;
+                    this.isJumping = true;
+                }
+            },
+
+            update() {
+                this.velocityY += GRAVITY;
+                this.y += this.velocityY;
+
+                // Ground collision
+                const groundY = canvasHeight - GROUND_HEIGHT - this.height;
+                if (this.y > groundY) {
+                    this.y = groundY;
+                    this.velocityY = 0;
+                    this.isJumping = false;
+                }
+
+                // Update running animation frame
+                if (!this.isJumping) {
+                    this.frameTimer++;
+                    if (this.frameTimer > 6) { // Adjust speed of animation
+                        this.runFrame = (this.runFrame + 1) % 2;
+                        this.frameTimer = 0;
+                    }
+                }
+
+                this.draw();
+            }
+        };
+
+        // Bullets
+        let bullets = [];
+        class Bullet {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.width = 15;
+                this.height = 5;
+                this.speed = 10;
+            }
+
+            update() {
+                this.x += this.speed;
+            }
+
+            draw() {
+                ctx.fillStyle = 'red';
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+            }
+        }
+
+        function shoot() {
+            if (!isGameOver) {
+                // Adjust bullet start position to match new gun barrel
+                bullets.push(new Bullet(player.x + 85, player.y + 25));
+            }
+        }
+
+        // Obstacles
+        let obstacles = [];
+        const OBSTACLE_INTERVAL_MIN = 80;
+        const OBSTACLE_INTERVAL_MAX = 150;
+        let obstacleTimer = 0;
+
+        class Obstacle {
+            constructor() {
+                this.width = 20 + Math.random() * 40;
+                this.height = 30 + Math.random() * 50;
+                this.x = canvasWidth;
+                this.y = canvasHeight - GROUND_HEIGHT - this.height;
+            }
+
+            update() {
+                this.x -= gameSpeed;
+            }
+
+            draw() {
+                ctx.fillStyle = '#535353';
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+            }
+        }
+
+        function handleObstacles() {
+            obstacleTimer++;
+            if (obstacleTimer > OBSTACLE_INTERVAL_MIN + Math.random() * (OBSTACLE_INTERVAL_MAX - OBSTACLE_INTERVAL_MIN)) {
+                obstacles.push(new Obstacle());
+                obstacleTimer = 0;
+            }
+
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                const obs = obstacles[i];
+                obs.update();
+                obs.draw();
+
+                // Remove if off-screen
+                if (obs.x + obs.width < 0) {
+                    obstacles.splice(i, 1);
+                }
+            }
+        }
+
+        // Collision Detection
+        function checkCollisions() {
+            // Player vs Obstacle
+            for (const obs of obstacles) {
+                if (
+                    player.x < obs.x + obs.width &&
+                    player.x + player.width > obs.x &&
+                    player.y < obs.y + obs.height &&
+                    player.y + player.height > obs.y
+                ) {
+                    gameOver();
+                    return;
+                }
+            }
+
+            // Bullet vs Obstacle
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                for (let j = obstacles.length - 1; j >= 0; j--) {
+                    if (
+                        bullets[i] && obstacles[j] &&
+                        bullets[i].x < obstacles[j].x + obstacles[j].width &&
+                        bullets[i].x + bullets[i].width > obstacles[j].x &&
+                        bullets[i].y < obstacles[j].y + obstacles[j].height &&
+                        bullets[i].y + bullets[i].height > obstacles[j].y
+                    ) {
+                        // Collision detected
+                        bullets.splice(i, 1);
+                        obstacles.splice(j, 1);
+                        score += 50;
+                        updateScore();
+                        break; // Exit inner loop as bullet is gone
+                    }
+                }
+            }
+        }
+        
+        function updateScore() {
+            scoreElement.textContent = `SCORE: ${score}`;
+        }
+
+        function gameOver() {
+            isGameOver = true;
+            cancelAnimationFrame(animationFrameId);
+            gameOverScreen.style.display = 'block';
+        }
+
+        function restartGame() {
+            score = 0;
+            gameSpeed = 5;
+            isGameOver = false;
+            obstacles = [];
+            bullets = [];
+            obstacleTimer = 0;
+            updateScore();
+            player.y = canvasHeight - GROUND_HEIGHT - player.height;
+            player.velocityY = 0;
+            player.isJumping = false;
+            gameOverScreen.style.display = 'none';
+            gameLoop();
+        }
+
+        // Game Loop
+        function gameLoop() {
+            if (isGameOver) return;
+
+            // Clear canvas
+            ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+
+            // Draw ground
+            ctx.fillStyle = '#d3d3d3';
+            ctx.fillRect(0, canvasHeight - GROUND_HEIGHT, canvasWidth, 2);
+
+            // Update and draw game elements
+            player.update();
+            handleObstacles();
+
+            bullets.forEach((bullet, index) => {
+                bullet.update();
+                bullet.draw();
+                if (bullet.x > canvasWidth) {
+                    bullets.splice(index, 1);
+                }
+            });
+
+            checkCollisions();
+
+            // Increase score and speed
+            score++;
+            updateScore();
+            if (score % 200 === 0) {
+                gameSpeed += 0.2;
+            }
+
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+        function resizeCanvas() {
+            canvasWidth = Math.min(window.innerWidth * 0.9, 800);
+            canvasHeight = Math.min(window.innerHeight * 0.9, 400);
+            canvas.width = canvasWidth;
+            canvas.height = canvasHeight;
+            
+            // Re-initialize player position on resize
+            if (!isGameOver) {
+                 player.y = canvasHeight - GROUND_HEIGHT - player.height;
+            }
+        }
+        
+        function init() {
+            resizeCanvas();
+            // Set initial player Y position
+            player.y = canvasHeight - GROUND_HEIGHT - player.height;
+            
+            // Event Listeners
+            window.addEventListener('resize', resizeCanvas);
+            
+            document.addEventListener('keydown', (e) => {
+                if ((e.code === 'Space' || e.code === 'ArrowUp') && !isGameOver) {
+                    player.jump();
+                }
+                if (e.code === 'Enter' && !isGameOver) {
+                    shoot();
+                }
+            });
+
+            canvas.addEventListener('mousedown', (e) => {
+                if (!isGameOver) {
+                    shoot();
+                }
+            });
+
+            restartButton.addEventListener('click', restartGame);
+
+            gameLoop();
+        }
+
+        init();
+    </script>
+</body>
+</html>
+
